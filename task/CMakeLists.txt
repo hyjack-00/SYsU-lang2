@@ -1,5 +1,5 @@
 find_package(FLEX 2.6)
-find_package(BISON 3.8)
+find_package(BISON)
 
 find_package(antlr4-runtime 4.13)
 find_package(antlr4-generator 4.13)
