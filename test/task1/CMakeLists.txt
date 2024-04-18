@@ -34,17 +34,20 @@ add_custom_target(
   USES_TERMINAL
   SOURCES answer.py)
 
+add_dependencies(task1-answer task0-answer)
+
 # 对实验进行评分
 add_custom_target(
   task1-score
   COMMAND
     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/score.py ${TEST_CASES_DIR}
     ${CMAKE_CURRENT_BINARY_DIR} ${TASK1_CASES_TXT} ${CTEST_COMMAND}
+    ${TASK1_LOG_LEVEL}
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   USES_TERMINAL
   SOURCES score.py)
 
-add_dependencies(task1-score task1 task1-answer task0-answer)
+add_dependencies(task1-score task1 task1-answer)
 
 # 为每个测例创建一个测试和评分
 foreach(_case ${_task1_cases})
@@ -57,7 +60,7 @@ foreach(_case ${_task1_cases})
     COMMAND
       ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/score.py
       ${TEST_CASES_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${TASK1_CASES_TXT}
-      ${CTEST_COMMAND} --single ${_case})
+      ${CTEST_COMMAND} ${TASK1_LOG_LEVEL} --single ${_case})
 endforeach()
 
 message(AUTHOR_WARNING "请在构建 task0-answer 后再使用 task1 的测试项目。")
