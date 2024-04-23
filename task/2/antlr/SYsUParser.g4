@@ -4,47 +4,94 @@ options {
   tokenVocab=SYsULexer;
 }
 
+
+
+// Expressions ------------------------------------------------------------
+
 primaryExpression
     :   Identifier
-    |   Constant
+    |   Numeric_Constant
+    |   L_Paren expression R_Paren
     ;
 
 postfixExpression
-    :   primaryExpression  
+    :   primaryExpression 
+    |   postfixExpression postfixOperator
+    ;
+
+// 数组索引时 [] 内必须要有表达式，但数组声明时可以没有
+// 函数调用 ()
+postfixOperator
+    :   L_Square expression R_Square
+    |   L_Paren argumentExpressionList? R_Paren
     ;
 
 unaryExpression
     :
-    (postfixExpression
+    (
+        postfixExpression
     |   unaryOperator unaryExpression
-    )
+    ) 
     ;
 
 unaryOperator
     :   Plus | Minus
     ;
 
-additiveExpression
-    :   unaryExpression ((Plus|Minus) unaryExpression)*
+multiplicativeExpression
+    :   unaryExpression ((Star|Slash|Percent) unaryExpression)*
     ;
 
+additiveExpression
+    :   multiplicativeExpression ((Plus|Minus) multiplicativeExpression)*
+    ;
+
+comparativeExpression
+    :   additiveExpression ((Less|LessEqual|Greater|GreaterEqual) additiveExpression)*
+    ;
+
+equativeExpression
+    :   comparativeExpression ((EqualEqual|ExclaimEqual) comparativeExpression)*
+    ;
+
+logicalAndExpression
+    :   equativeExpression (AmpAmp equativeExpression)*
+    ;
+
+logicalOrExpression
+    :   logicalAndExpression (PipePipe logicalAndExpression)*
+    ;
 
 assignmentExpression
-    :   additiveExpression
+    :   logicalOrExpression
     |   unaryExpression Equal assignmentExpression
     ;
+
+
 
 expression
     :   assignmentExpression (Comma assignmentExpression)*
     ;
 
+argumentExpressionList
+    :   assignmentExpression (Comma assignmentExpression)*
+    ;
+
+
+
+
+// Declaration ------------------------------------------------------------
 
 declaration
     :   declarationSpecifiers initDeclaratorList? Semi
     ;
 
 declarationSpecifiers
-    :   declarationSpecifier+
+    :   declarationQualifier? declarationSpecifier+
+    ;
+
+declarationQualifier
+    :   typeQualifier
     ;
 
 declarationSpecifier
@@ -60,8 +107,12 @@ initDeclarator
     ;
 
 
+typeQualifier
+    :   Const
+    ;
+
 typeSpecifier
-    :   Int
+    :   Int | Void
     ;
 
 
@@ -71,7 +122,7 @@ declarator
 
 directDeclarator
     :   Identifier
-    |   directDeclarator LeftBracket assignmentExpression? RightBracket
+    |   directDeclarator L_Square assignmentExpression? R_Square
     ;
 
 identifierList
@@ -80,7 +131,7 @@ identifierList
 
 initializer
     :   assignmentExpression
-    |   LeftBrace initializerList? Comma? RightBrace
+    |   L_Brace initializerList? Comma? R_Brace
     ;
 
 initializerList
@@ -88,14 +139,19 @@ initializerList
     :   initializer (Comma initializer)*
     ;
 
+
+
+// Statements ------------------------------------------------------------
+
 statement
     :   compoundStatement
     |   expressionStatement
+    |   conditionStatement
     |   jumpStatement
     ;
 
 compoundStatement
-    :   LeftBrace blockItemList? RightBrace
+    :   L_Brace blockItemList? R_Brace
     ;
 
 blockItemList
@@ -111,12 +167,21 @@ expressionStatement
     :   expression? Semi
     ;
 
-
+conditionStatement
+    :   If L_Paren expression R_Paren statement (Else statement)?
+    ;
 
 jumpStatement
-    :   (Return expression?)
+    :   
+    (
+        Return expression?
+    )
     Semi
     ;
+
+
+
+// Global ------------------------------------------------------------
 
 compilationUnit
     :   translationUnit? EOF
@@ -128,10 +193,23 @@ translationUnit
 
 externalDeclaration
     :   functionDefinition
+    // |   functionDeclaration
     |   declaration
     ;
 
+// functionDeclaration
+//     :   declarationSpecifiers directDeclarator L_Paren parameterDeclarationList? R_Paren Semi
+//     ;
+
 functionDefinition
-    : declarationSpecifiers directDeclarator LeftParen RightParen compoundStatement
+    :   declarationSpecifiers directDeclarator L_Paren parameterDeclarationList? R_Paren compoundStatement
+    ;
+
+parameterDeclarationList
+    :   parameterDeclaration (Comma parameterDeclaration)*
+    ;
+
+parameterDeclaration
+    :   declarationSpecifiers initDeclarator
     ;
 

@@ -13,20 +13,47 @@ using namespace SYsULexerTokens;
 static const std::unordered_map<std::string, size_t> kClangTokens{
   { "eof", antlr4::Token::EOF },
   { "int", kInt },
-  { "identifier", kIdentifier },
-  { "l_paren", kLeftParen },
-  { "r_paren", kRightParen },
   { "return", kReturn },
-  { "r_brace", kRightBrace },
-  { "l_brace", kLeftBrace },
-  { "numeric_constant", kConstant },
-  { "semi", kSemi },
-  { "equal", kEqual },
+  { "const", kConst },
+  { "if", kIf },
+  { "else", kElse },
+  { "void", kVoid },
+  { "while", kWhile },
+  { "break", kBreak },
+  { "continue", kContinue },
+
+  { "l_paren", kL_Paren },
+  { "r_paren", kR_Paren },
+  { "l_square", kL_Square },
+  { "r_square", kR_Square },
+  { "l_brace", kL_Brace },
+  { "r_brace", kR_Brace },
+
   { "plus", kPlus },
   { "minus", kMinus },
+  { "star", kStar },
+  { "slash", kSlash },
+  { "percent", kPercent },
+
+  { "semi", kSemi },
   { "comma", kComma },
-  { "l_square", kLeftBracket },
-  { "r_square", kRightBracket }
+
+  { "equal", kEqual },
+  { "equalequal", kEqualEqual },
+  { "exclaimequal", kExclaimEqual },
+  { "greater", kGreater },
+  { "greaterequal", kGreaterEqual },
+  { "less", kLess },
+  { "lessequal", kLessEqual },
+
+  { "exclaim", kExclaim },
+  { "pipe", kPipe },
+  { "amp", kAmp },
+  { "pipepipe", kPipePipe },
+  { "ampamp", kAmpAmp },
+
+  { "identifier", kIdentifier },
+  { "numeric_constant", kNumeric_Constant }
 };
 
 } // namespace

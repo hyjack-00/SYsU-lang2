@@ -42,7 +42,17 @@ public:
 
   Expr* operator()(ast::AssignmentExpressionContext* ctx);
 
+  Expr* operator()(ast::LogicalOrExpressionContext* ctx);
+
+  Expr* operator()(ast::LogicalAndExpressionContext* ctx);
+
+  Expr* operator()(ast::ComparativeExpressionContext* ctx);
+
+  Expr* operator()(ast::EquativeExpressionContext* ctx);
+
   Expr* operator()(ast::AdditiveExpressionContext* ctx);
+
+  Expr* operator()(ast::MultiplicativeExpressionContext* ctx);
 
   Expr* operator()(ast::UnaryExpressionContext* ctx);
 
@@ -62,6 +72,8 @@ public:
 
   Stmt* operator()(ast::ExpressionStatementContext* ctx);
 
+  Stmt* operator()(ast::ConditionStatementContext* ctx);
+
   Stmt* operator()(ast::JumpStatementContext* ctx);
 
   //============================================================================
@@ -71,6 +83,10 @@ public:
   std::vector<Decl*> operator()(ast::DeclarationContext* ctx);
 
   FunctionDecl* operator()(ast::FunctionDefinitionContext* ctx);
+
+  // FunctionDecl* operator()(ast::FunctionDeclarationContext* ctx);
+
+  Decl* operator()(ast::ParameterDeclarationContext* ctx);
 
   Decl* operator()(ast::InitDeclaratorContext* ctx, SpecQual sq);
 

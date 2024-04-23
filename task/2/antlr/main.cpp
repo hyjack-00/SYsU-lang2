@@ -38,7 +38,7 @@ main(int argc, char* argv[])
   antlr4::CommonTokenStream tokens(&lexer);
   SYsUParser parser(&tokens);
 
-  auto ast = parser.compilationUnit();
+  auto ast = parser.compilationUnit(); // antlr 生成
   Obj::Mgr mgr;
 
   asg::Ast2Asg ast2asg(mgr);
