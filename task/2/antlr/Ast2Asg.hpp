@@ -84,7 +84,9 @@ public:
 
   FunctionDecl* operator()(ast::FunctionDefinitionContext* ctx);
 
-  // FunctionDecl* operator()(ast::FunctionDeclarationContext* ctx);
+  FunctionDecl* operator()(ast::FunctionDeclarationContext* ctx);
+
+  FunctionDecl* operator()(ast::FunctionPrototypeContext* ctx);
 
   Decl* operator()(ast::ParameterDeclarationContext* ctx);
 

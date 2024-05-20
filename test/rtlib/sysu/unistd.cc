@@ -16,7 +16,7 @@ long long sysu_write(int fd, const char buf[], long long count) {
 }
 
 long long sysu_lseek64(int fd, long long offset, int whence) {
-  return lseek64(fd, offset, whence);
+  return lseek(fd, offset, whence);
 }
 
 int sysu_fork() { return fork(); }

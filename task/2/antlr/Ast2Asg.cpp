@@ -59,6 +59,14 @@ Ast2Asg::operator()(ast::TranslationUnitContext* ctx)
       localDecls[funcDecl->name] = funcDecl;
     }
 
+    else if (auto p = i->functionDeclaration()) {
+      auto funcDecl = self(p);
+      ret->decls.push_back(funcDecl);
+
+      // 添加到声明表
+      localDecls[funcDecl->name] = funcDecl;
+    } 
+
     else
       ABORT();
   }
@@ -77,13 +85,12 @@ Ast2Asg::operator()(ast::DeclarationSpecifiersContext* ctx)
 
   for (auto&& i : ctx->declarationSpecifier()) {
     if (auto p = i->typeSpecifier()) {
-      if (ret.first == Type::Spec::kINVALID) {
-        if (p->Int())
-          ret.first = Type::Spec::kInt;
-        else
-          ABORT(); // 未知的类型说明符
-      }
-
+      if (p->Int())
+        ret.first = Type::Spec::kInt;
+      
+      else if (p->Void())
+        ret.first = Type::Spec::kVoid;
+      
       else
         ABORT(); // 未知的类型说明符
     }
@@ -461,6 +468,10 @@ Ast2Asg::operator()(ast::UnaryExpressionContext* ctx)
       ret->op = ret->kNeg;
       break;
 
+    case ast::Exclaim:
+      ret->op = ret->kNot;
+      break;
+
     default:
       ABORT();
   }
@@ -652,6 +663,16 @@ Ast2Asg::operator()(ast::ConditionStatementContext* ctx)
     return ret;
   }
 
+  // while
+  if (auto p = ctx->While()) {
+    auto ret = make<WhileStmt>();
+
+    ret->cond = self(ctx->expression());
+    ret->body = self(ctx->statement(0));
+
+    return ret;
+  }
+
   ABORT();
 }
 
@@ -663,6 +684,16 @@ Ast2Asg::operator()(ast::JumpStatementContext* ctx)
     ret->func = mCurrentFunc;
     if (auto p = ctx->expression())
       ret->expr = self(p);
+    return ret;
+  }
+
+  if (ctx->Break()) {
+    auto ret = make<BreakStmt>();
+    return ret;
+  }
+
+  if (ctx->Continue()) {
+    auto ret = make<ContinueStmt>();
     return ret;
   }
 
@@ -678,36 +709,67 @@ Ast2Asg::operator()(ast::DeclarationContext* ctx)
 {
   std::vector<Decl*> ret;
 
-  auto specs = self(ctx->declarationSpecifiers());
+  if (auto p = ctx->declarationSpecifiers()) {
+    auto specs = self(p);
 
-  if (auto p = ctx->initDeclaratorList()) {
-    for (auto&& j : p->initDeclarator())
-      ret.push_back(self(j, specs));
+    if (auto p = ctx->initDeclaratorList()) {
+      for (auto&& j : p->initDeclarator())
+        ret.push_back(self(j, specs));
+    }
   }
 
-  // 如果 initDeclaratorList 为空则这行声明语句无意义 
   return ret;
 }
 
 FunctionDecl*
 Ast2Asg::operator()(ast::FunctionDefinitionContext* ctx)
 {
-  auto ret = make<FunctionDecl>();
+  auto ret = self(ctx->functionPrototype());
   mCurrentFunc = ret;
 
-  auto type = make<Type>();
-  ret->type = type;
+  // 外部符号表在 externalDeclaration 处理，续上本地的新符号表
+  Symtbl localDecls(self); 
 
+  // 加入本地符号表以允许递归调用
+  (*mSymtbl)[ret->name] = ret;
+
+  if (ret->body) // 重复定义
+    ABORT();
+  ret->body = self(ctx->compoundStatement());
+
+  return ret;
+}
+
+FunctionDecl*
+Ast2Asg::operator()(ast::FunctionDeclarationContext* ctx)
+{
+  auto ret = self(ctx->functionPrototype());
+
+  // 外部符号表在 externalDeclaration 处理
+
+  return ret;
+}
+
+FunctionDecl*
+Ast2Asg::operator()(ast::FunctionPrototypeContext* ctx)
+{
+  auto ret = make<FunctionDecl>();
+  auto type = make<Type>();
+  auto funcType = make<FunctionType>();
+
+  ret->type = type;
+  type->texp = funcType;
+
+  // function return type / qualifiers
   auto sq = self(ctx->declarationSpecifiers());
   type->spec = sq.first, type->qual = sq.second;
 
+  // function name
   auto [texp, name] = self(ctx->directDeclarator(), nullptr);
-  auto funcType = make<FunctionType>();
-  funcType->sub = texp;
-  type->texp = funcType;
+  funcType->sub = texp; // 目前暂时为 nullptr
   ret->name = std::move(name);
 
-  // params
+  // function params
   if (auto p = ctx->parameterDeclarationList()) {
     for (auto&& i : p->parameterDeclaration()) {
       auto param = self(i);
@@ -716,52 +778,8 @@ Ast2Asg::operator()(ast::FunctionDefinitionContext* ctx)
     }
   }
 
-  Symtbl localDecls(self);
-
-  // 函数定义在签名之后就加入符号表，以允许递归调用
-  (*mSymtbl)[ret->name] = ret;
-
-  ret->body = self(ctx->compoundStatement());
-
   return ret;
 }
-
-// FunctionDecl*
-// Ast2Asg::operator()(ast::FunctionDeclarationContext* ctx)
-// {
-//   auto ret = make<FunctionDecl>();
-//   mCurrentFunc = ret;
-
-//   auto type = make<Type>();
-//   ret->type = type;
-
-//   auto sq = self(ctx->declarationSpecifiers());
-//   type->spec = sq.first, type->qual = sq.second;
-
-//   auto [texp, name] = self(ctx->directDeclarator(), nullptr);
-//   auto funcType = make<FunctionType>();
-//   funcType->sub = texp;
-//   type->texp = funcType;
-//   ret->name = std::move(name);
-
-//   // params
-//   if (auto p = ctx->parameterDeclarationList()) {
-//     for (auto&& i : p->parameterDeclaration()) {
-//       auto param = self(i);
-//       funcType->params.push_back(param->type);
-//       ret->params.push_back(param);
-//     }
-//   }
-
-//   Symtbl localDecls(self);
-
-//   // 函数定义在签名之后就加入符号表，以允许递归调用
-//   (*mSymtbl)[ret->name] = ret;
-
-//   ret->body = self(ctx->compoundStatement());
-
-//   return ret;
-// }
 
 Decl*
 Ast2Asg::operator()(ast::ParameterDeclarationContext* ctx)

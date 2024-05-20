@@ -36,13 +36,19 @@ private:
 
   llvm::Constant* operator()(asg::IntegerLiteral* obj);
 
-  // TODO: 添加表达式处理相关声明
+  llvm::Value* operator()(asg::BinaryExpr* obj);
+  
+  llvm::Value* operator()(asg::ImplicitCastExpr* obj);
+
+  llvm::Value* operator()(asg::DeclRefExpr* obj);
 
   //============================================================================
   // 语句
   //============================================================================
 
   void operator()(asg::Stmt* obj);
+
+  void operator()(asg::DeclStmt* obj);
 
   void operator()(asg::CompoundStmt* obj);
 
@@ -54,9 +60,14 @@ private:
   // 声明
   //============================================================================
 
+  void trans_init(llvm::Value* ptrVal, asg::Expr* obj);
+
   void operator()(asg::Decl* obj);
 
+  void operator()(asg::VarDecl* obj);
+  
   void operator()(asg::FunctionDecl* obj);
+  
 
   // TODO: 添加声明处理相关声明
 };

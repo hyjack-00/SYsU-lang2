@@ -35,7 +35,7 @@ unaryExpression
     ;
 
 unaryOperator
-    :   Plus | Minus
+    :   Plus | Minus | Exclaim 
     ;
 
 multiplicativeExpression
@@ -169,13 +169,16 @@ expressionStatement
 
 conditionStatement
     :   If L_Paren expression R_Paren statement (Else statement)?
+    |   While L_Paren expression R_Paren statement
     ;
 
 jumpStatement
     :   
     (
         Return expression?
-    )
+    |   Break
+    |   Continue
+    ) 
     Semi
     ;
 
@@ -193,16 +196,21 @@ translationUnit
 
 externalDeclaration
     :   functionDefinition
-    // |   functionDeclaration
+    |   functionDeclaration
     |   declaration
     ;
 
-// functionDeclaration
-//     :   declarationSpecifiers directDeclarator L_Paren parameterDeclarationList? R_Paren Semi
-//     ;
 
 functionDefinition
-    :   declarationSpecifiers directDeclarator L_Paren parameterDeclarationList? R_Paren compoundStatement
+    :   functionPrototype compoundStatement
+    ;
+
+functionDeclaration
+    :   functionPrototype Semi
+    ;
+
+functionPrototype
+    :   declarationSpecifiers directDeclarator L_Paren parameterDeclarationList? R_Paren
     ;
 
 parameterDeclarationList
