@@ -50,12 +50,19 @@ EmitIR::operator()(const Type* type)
   subt.qual = type->qual;
   subt.texp = type->texp->sub;
 
-  // TODO: 在此添加对指针类型、数组类型和函数类型的处理
-
+  if (auto p = type->texp->dcst<PointerType>()) {
+    return llvm::PointerType::get(self(&subt), 0);
+  }
+  if (auto p = type->texp->dcst<ArrayType>()) {
+    // TODO 统一
+    return get_array_type(p);
+  }
   if (auto p = type->texp->dcst<FunctionType>()) {
     std::vector<llvm::Type*> pty;
-    // TODO: 在此添加对函数参数类型的处理
-    return llvm::FunctionType::get(self(&subt), std::move(pty), false);
+    for (auto param : p->params) {
+      pty.push_back(self(param));
+    }
+    return llvm::FunctionType::get(self(&subt), pty, false);
   }
 
   ABORT();
@@ -75,6 +82,8 @@ EmitIR::operator()(Expr* obj)
   if (auto p = obj->dcst<UnaryExpr>())
     return self(p);
   if (auto p = obj->dcst<BinaryExpr>())
+    return self(p);
+  if (auto p = obj->dcst<CallExpr>())
     return self(p);
   if (auto p = obj->dcst<InitListExpr>())
     return self(p);
@@ -209,13 +218,13 @@ EmitIR::operator()(BinaryExpr* obj)
 llvm::Value*
 EmitIR::operator()(CallExpr* obj)
 {
-  // auto func = reinterpret_cast<llvm::Function*>(obj->callee->any);
-  // std::vector<llvm::Value*> args;
-  // for (auto&& arg : obj->args) {
-  //   args.push_back(self(arg)); // IR val
-  // }
-
-  // return mCurIrb->CreateCall(func, args); // IR inst
+  auto funcName = self(obj->head)->getName();
+  auto func = mMod.getFunction(funcName);
+  std::vector<llvm::Value*> args;
+  for (auto arg : obj->args) {
+    args.push_back(self(arg));
+  }
+  return mCurIrb->CreateCall(func, args); // IR val
 }
 
 void
@@ -296,6 +305,9 @@ EmitIR::operator()(ImplicitCastExpr* obj)
       return irb.CreateLoad(ty, subVal); // IR inst (val)
     }
     case ImplicitCastExpr::kArrayToPointerDecay: { // 地址 -> 地址
+      return subVal; // IR val
+    }
+    case ImplicitCastExpr::kFunctionToPointerDecay: {
       return subVal; // IR val
     }
 
@@ -554,8 +566,13 @@ EmitIR::trans_init(llvm::Value* ptrVal, Expr* obj)
     irb.CreateStore(initVal, ptrVal); // IR inst
     return;
   }
-
-  ABORT();
+  if (auto p = obj->dcst<InitListExpr>()) {
+    ABORT();
+  }
+  else {
+    auto val = self(obj); // IR val
+    irb.CreateStore(val, ptrVal); // IR inst
+  }
 }
 
 void 
@@ -648,9 +665,18 @@ EmitIR::operator()(FunctionDecl* obj)
   mCurIrb = std::make_unique<llvm::IRBuilder<>>(entryBb);
   auto& entryIrb = *mCurIrb;
 
-  // 对函数参数的处理
+  // 对函数参数的处理：局部参数声明
+  auto argIter = func->arg_begin();
   for (auto param : obj->params) {
-    self(param); // 参数声明
+    auto argVal = &*argIter;
+    argVal->setName(param->name);
+    argIter++;
+
+    // 忽略默认值？
+    auto ty = self(param->type);
+    auto argPtr = entryIrb.CreateAlloca(ty, nullptr, param->name);
+    entryIrb.CreateStore(argVal, argPtr);
+    param->any = argPtr;
   }
 
   // 翻译函数体

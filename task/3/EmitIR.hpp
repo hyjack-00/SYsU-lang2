@@ -66,6 +66,8 @@ private:
 
   void operator()(asg::CompoundStmt* obj);
 
+  void operator()(asg::IfStmt* obj);
+
   void operator()(asg::ReturnStmt* obj);
 
   // TODO: 添加语句处理相关声明
