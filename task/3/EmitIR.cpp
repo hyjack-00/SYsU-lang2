@@ -1,9 +1,9 @@
 #include "EmitIR.hpp"
 #include "Obj.hpp"
 #include "asg.hpp"
-#include <llvm/Transforms/Utils/ModuleUtils.h>
 
 #include <llvm/IR/ValueSymbolTable.h>
+#include <vector>
 
 #define self (*this)
 
@@ -70,8 +70,16 @@ EmitIR::operator()(Expr* obj)
 {
   if (auto p = obj->dcst<IntegerLiteral>())
     return self(p);
+  if (auto p = obj->dcst<ParenExpr>())
+    return self(p);
+  if (auto p = obj->dcst<UnaryExpr>())
+    return self(p);
   if (auto p = obj->dcst<BinaryExpr>())
     return self(p);
+  if (auto p = obj->dcst<InitListExpr>())
+    return self(p);
+  if (auto p = obj->dcst<ImplicitInitExpr>())
+    return nullptr;
   if (auto p = obj->dcst<ImplicitCastExpr>())
     return self(p);
   if (auto p = obj->dcst<DeclRefExpr>())
@@ -87,6 +95,56 @@ EmitIR::operator()(IntegerLiteral* obj)
 }
 
 llvm::Value*
+EmitIR::operator()(ParenExpr* obj)
+{
+  return self(obj->sub); // IR val
+}
+
+llvm::Value*
+EmitIR::operator()(UnaryExpr* obj)
+{
+  auto val = self(obj->sub); // IR val
+
+  auto &irb = *mCurIrb;
+  switch (obj->op) {
+    case UnaryExpr::kPos: {
+      return val; // IR val
+    }
+    case UnaryExpr::kNeg: {
+      return irb.CreateNeg(val); // IR val
+    }
+    case UnaryExpr::kNot: {
+      return irb.CreateNot(val); // IR val
+    }
+
+    default:
+      ABORT();
+  }
+}
+
+llvm::Value* 
+EmitIR::get_array_indexed(BinaryExpr *indexExpr)
+{
+  auto arr = indexExpr->lft->dcst<ImplicitCastExpr>()->sub; // WARN: 强制处理跳过指针转换，可能有其他情况
+  auto idx = indexExpr->rht;
+  auto arrVal = self(arr);
+  auto idxVal = self(idx);
+
+  auto arrTy = get_array_type(
+    arr->type->texp->dcst<ArrayType>()
+  );
+
+  auto &irb = *mCurIrb;
+  std::vector<llvm::Value*> idxList{
+    irb.getInt64(0),
+    idxVal // WARN: 类型最好应该转为 i64
+  };
+
+  // WARN 暂时存在逻辑重复，但不影响结果
+  return mCurIrb->CreateInBoundsGEP(arrTy, arrVal, idxList);
+}
+
+llvm::Value*
 EmitIR::operator()(BinaryExpr* obj)
 {
   auto lftVal = self(obj->lft); // IR val
@@ -94,13 +152,136 @@ EmitIR::operator()(BinaryExpr* obj)
 
   auto &irb = *mCurIrb;
   switch (obj->op) {
-    case BinaryExpr::kAdd: {
-      return irb.CreateAdd(lftVal, rhtVal); // IR inst
+    case BinaryExpr::kAssign: {
+      return irb.CreateStore(rhtVal, lftVal); // IR inst (val)
     }
-  
+    case BinaryExpr::kAdd: {
+      return irb.CreateAdd(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kSub: {
+      return irb.CreateSub(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kMul: {
+      return irb.CreateMul(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kDiv: {
+      return irb.CreateSDiv(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kMod: {
+      return irb.CreateSRem(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kGt: {
+      return irb.CreateICmpSGT(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kLt: {
+      return irb.CreateICmpSLT(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kGe: {
+      return irb.CreateICmpSGE(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kLe: {
+      return irb.CreateICmpSLE(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kEq: {
+      return irb.CreateICmpEQ(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kNe: {
+      return irb.CreateICmpNE(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kAnd: {
+      return irb.CreateAnd(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kOr: {
+      return irb.CreateOr(lftVal, rhtVal); // IR val
+    }
+    case BinaryExpr::kComma: {
+      return rhtVal; // IR val
+    }
+    case BinaryExpr::kIndex: {
+      return get_array_indexed(obj); // IR addr
+    }
+
     default:
       ABORT();
   }
+}
+
+llvm::Value*
+EmitIR::operator()(CallExpr* obj)
+{
+  // auto func = reinterpret_cast<llvm::Function*>(obj->callee->any);
+  // std::vector<llvm::Value*> args;
+  // for (auto&& arg : obj->args) {
+  //   args.push_back(self(arg)); // IR val
+  // }
+
+  // return mCurIrb->CreateCall(func, args); // IR inst
+}
+
+void
+EmitIR::array_empty_filler(std::vector<llvm::Constant*> &arr, ArrayType* arrTyExpr)
+{
+  auto len = arrTyExpr->len;
+
+  // 多维数组
+  if (auto p = arrTyExpr->sub->dcst<ArrayType>()) {
+    auto aty = get_array_type(p);
+    
+    while (arr.size() < len) {
+      std::vector<llvm::Constant*> emptyArr;
+      array_empty_filler(emptyArr, p);
+      
+      arr.push_back(llvm::ConstantArray::get(aty, emptyArr));
+    }
+  }
+  else { // 一维数组
+    auto ty = mIntTy;
+
+    while (arr.size() < len) 
+      arr.push_back(llvm::ConstantInt::get(ty, 0));
+  }
+}
+
+llvm::Constant*
+EmitIR::operator()(InitListExpr* obj)
+{
+  auto arrTyExpr = obj->type->texp->dcst<ArrayType>();
+  auto arrTy = get_array_type(arrTyExpr);
+  auto len = arrTyExpr->len;
+
+  std::vector<llvm::Constant*> elements;
+  auto runtimeVals = new std::vector<std::pair<int, llvm::Value*>>();
+
+  int idx = 0;
+  for (auto expr : obj->list) {
+    llvm::Constant* val;
+    if (auto p = expr->dcst<IntegerLiteral>()) {
+      val = self(p);
+    }
+    else if (auto p = expr->dcst<InitListExpr>()) {
+      val = self(p);
+    }
+    else if (auto p = expr->dcst<ImplicitInitExpr>()) {
+      continue;
+    }
+    else { // 运行时表达式，一定是最底层，使用 0 填充留给后续 IR Store 处理
+      val = llvm::ConstantInt::get(mIntTy, 0);
+      runtimeVals->push_back({idx, self(expr)});
+    }
+
+    elements.push_back(val);
+    idx++;
+  }
+
+  // runtimeVals 交给 void *
+  obj->any = runtimeVals;
+
+  // 补全
+  if (elements.size() < len) {
+    array_empty_filler(elements, arrTyExpr);
+  }
+
+  return llvm::ConstantArray::get(arrTy, elements);
 }
 
 llvm::Value*
@@ -110,9 +291,12 @@ EmitIR::operator()(ImplicitCastExpr* obj)
 
   auto &irb = *mCurIrb;
   switch (obj->kind) {
-    case ImplicitCastExpr::kLValueToRValue: { // 子表达式左值（地址） -> 值
+    case ImplicitCastExpr::kLValueToRValue: { // 地址 -> 值
       auto ty = self(obj->sub->type);
-      return irb.CreateLoad(ty, subVal); // IR inst
+      return irb.CreateLoad(ty, subVal); // IR inst (val)
+    }
+    case ImplicitCastExpr::kArrayToPointerDecay: { // 地址 -> 地址
+      return subVal; // IR val
     }
 
     default:
@@ -144,43 +328,178 @@ EmitIR::operator()(Stmt* obj)
   if (auto p = obj->dcst<DeclStmt>())
     return self(p);
 
+  if (auto p = obj->dcst<ExprStmt>())
+    return self(p);
+
   if (auto p = obj->dcst<ReturnStmt>())
     return self(p);
 
   ABORT();
 }
 
+void 
+EmitIR::var_decl(VarDecl* decl)
+{
+  auto ty = llvm::Type::getInt32Ty(mCtx);
+
+  //# 创建变量，分配内存
+  goto_entry_block();
+  mCurIrb->CreateAlloca(
+    ty, nullptr, decl->name); // IR inst
+  leave_entry_block();
+
+  auto varVal = mCurFunc->getValueSymbolTable()->lookup(decl->name); // IR addr
+  decl->any = varVal;
+
+  //# 初始化构造器，直接原地插入 store 即可
+  if (decl->init != nullptr)
+    trans_init(varVal, decl->init); // IR inst 
+}
+
+llvm::ArrayType*
+EmitIR::get_array_type(ArrayType *typeExpr)
+{
+  if (typeExpr->sub == nullptr) {
+    auto ty = llvm::Type::getInt32Ty(mCtx);
+    return llvm::ArrayType::get(
+    ty,
+    typeExpr->len);
+  }
+  return llvm::ArrayType::get(
+  get_array_type(typeExpr->sub->dcst<ArrayType>()), 
+  typeExpr->len);
+}
+
+// 从 obj->any 获取即将要运行时的列表赋值
+void
+get_array_runtime_dimsvals(
+  std::vector<std::pair<std::vector<int>, llvm::Value*>> &dimsVals,
+  InitListExpr* initExpr,
+  std::vector<int> curDims=std::vector<int>() // 回溯用
+)
+{
+  // 递归底层
+  if (initExpr->any) {
+    auto runtimeVals = (std::vector<std::pair<int, llvm::Value*>> *) initExpr->any;
+    for (auto [idx, val] : *runtimeVals) {
+      curDims.push_back(idx);
+      dimsVals.push_back({curDims, val});
+      curDims.pop_back();
+    }
+    delete runtimeVals;
+    initExpr->any = nullptr;
+  }
+
+  // 传递
+  if (initExpr->list[0]->dcst<InitListExpr>()) {
+    int idx = 0;
+    for (auto e : initExpr->list) {
+      auto subInitExpr = e->dcst<InitListExpr>();
+      curDims.push_back(idx);
+      get_array_runtime_dimsvals(dimsVals, subInitExpr, curDims);
+      curDims.pop_back();
+      idx++;
+    }
+  }
+}
+
+// 使用运行时值的列表赋值
+void
+EmitIR::array_runtime_init(
+  llvm::Value* arrVal, llvm::Type* arrTy,
+  llvm::Value* rtVal, 
+  InitListExpr* initExpr,
+  std::vector<int> &dims)
+{
+  auto &irb = *mCurIrb;
+  std::vector<llvm::Value*> idxList;
+  idxList.push_back(irb.getInt64(0));
+  for (auto idx : dims) {
+    idxList.push_back(irb.getInt64(idx));
+  }
+
+  auto arrPtr = irb.CreateInBoundsGEP(arrTy, arrVal, idxList);
+  irb.CreateStore(rtVal, arrPtr);
+}
+
+// 使用常量数组的列表复制 
+void 
+EmitIR::array_const_init(
+  VarDecl* decl,
+  InitListExpr* initExpr,
+  llvm::Value* arrVal)
+{
+  auto constArr = self(initExpr); // IR const arr
+  auto gConstArr = new llvm::GlobalVariable(
+    mMod, constArr->getType(), true, llvm::GlobalValue::ExternalLinkage, 
+    constArr, decl->name + ".init");
+
+  auto gConstArrPtr = mCurIrb->CreatePointerCast(
+    gConstArr, llvm::PointerType::getUnqual(constArr->getType()));
+
+  mCurIrb->CreateMemCpy(
+    arrVal, llvm::Align(4),
+    gConstArrPtr, llvm::Align(4),
+    constArr->getType()->getArrayNumElements() * 8  // 8:byte
+  );
+}
+
+void
+EmitIR::array_decl(VarDecl* decl)
+{
+  //# 创建数组
+  auto aty = get_array_type(
+    decl->type->texp->dcst<ArrayType>());
+  
+  goto_entry_block();
+  mCurIrb->CreateAlloca(
+    aty, nullptr, decl->name); // IR inst
+  leave_entry_block();
+
+  auto arrVal = mCurFunc->getValueSymbolTable()->lookup(decl->name); // IR addr
+  decl->any = arrVal;
+
+  //# 初始化构造器
+  if (decl->init != nullptr) {
+    if (auto initExpr = decl->init->dcst<InitListExpr>()) {
+      array_const_init(decl, initExpr, arrVal);
+
+      // 处理运行时值用于初始化：
+      std::vector<std::pair<std::vector<int>, llvm::Value*>> rtDimsVals;
+      get_array_runtime_dimsvals(rtDimsVals, initExpr);
+      for (auto [dims, rtVal] : rtDimsVals) {
+        array_runtime_init(arrVal, aty, rtVal, initExpr, dims);
+      }
+    }
+    else 
+      ABORT();
+  }
+}
+
+// 可以用 p->type->spec 确定基本数据类型，暂时全只用 int
 void
 EmitIR::operator()(DeclStmt* obj)
 {
-  for (auto&& decl : obj->decls) {
-    if (auto p = decl->dcst<VarDecl>()) {
-      //# 创建局部变量 alloc IR
-      auto curBlock = mCurIrb->GetInsertBlock(); // 暂时切换
-
-      // 所有局部变量 alloc 插入到函数入口
-      { 
-        auto &entryBb = mCurFunc->getEntryBlock();
-        mCurIrb = std::make_unique<llvm::IRBuilder<>>(&entryBb);
-        
-        auto ty = mIntTy; 
-        mCurIrb->CreateAlloca(
-          ty, nullptr, p->name); // IR inst
-
-        p->any = mCurFunc->getValueSymbolTable()->lookup(p->name); // IR alloca addr
+  for (auto decl : obj->decls) {
+    if (auto p = decl->dcst<VarDecl>()) 
+    {
+      auto typeExpr = p->type->texp;
+      if (auto pty = typeExpr->dcst<ArrayType>()) {
+        array_decl(p);
       }
-
-      mCurIrb = std::make_unique<llvm::IRBuilder<>>(curBlock); // 回溯
-
-      if (p->init == nullptr)
-        return;
-
-      //# 初始化构造器，直接原地插入 store 即可
-      trans_init(reinterpret_cast<llvm::Value*>(p->any), p->init); // IR inst
+      else {
+        var_decl(p);
+      }
     }
     else
       ABORT();
   }
+}
+
+void
+EmitIR::operator()(ExprStmt* obj)
+{
+  self(obj->expr);
 }
 
 void
@@ -240,37 +559,76 @@ EmitIR::trans_init(llvm::Value* ptrVal, Expr* obj)
 }
 
 void 
-EmitIR::operator()(VarDecl* obj) // 变量声明
+EmitIR::global_var_decl(VarDecl* decl)
 {
   //# 创建全局变量 IR
   auto ty = mIntTy;
   auto gvar = new llvm::GlobalVariable(
-    mMod, ty, false, llvm::GlobalValue::ExternalLinkage, 
-    nullptr, obj->name);
+    mMod, ty, false, 
+    llvm::GlobalValue::ExternalLinkage, 
+    nullptr, decl->name);
   gvar->setInitializer(llvm::ConstantInt::get(ty, 0));
   
-  obj->any = gvar; // annotation for DeclRefExpr
+  decl->any = gvar; // annotation for DeclRefExpr
 
-  if (obj->init == nullptr)
+  if (decl->init == nullptr)
     return;
 
   //# 初始化构造器
-  mCurFunc = llvm::Function::Create(
-    mCtorTy, llvm::GlobalVariable::ExternalLinkage, 
-    obj->name + ".ctor", mMod); 
-  
-  auto entryBb = llvm::BasicBlock::Create(
-    mCtx, "entry", mCurFunc); 
-  // 指定当前IR插入点为 Block 的末尾
-  mCurIrb = std::make_unique<llvm::IRBuilder<>>(entryBb); 
+  goto_global_ctor_block(decl);
+
   // 创建 store 指令将表达式的值存入全局变量 gvar
-  trans_init(gvar, obj->init); // IR inst
-  // 将构造器添加到全局构造器列表中
-  llvm::appendToGlobalCtors(mMod, mCurFunc, 65535);
+  trans_init(gvar, decl->init); // IR inst
+  
+  leave_global_ctor_block();
+}
 
-  mCurIrb->CreateRet(nullptr);
-  mCurFunc = nullptr;
+void 
+EmitIR::global_array_decl(VarDecl* decl)
+{
+  //# 创建全局数组
+  auto aty = get_array_type(
+    decl->type->texp->dcst<ArrayType>());
+  auto gvar = new llvm::GlobalVariable(
+    mMod, aty, false, 
+    llvm::GlobalValue::ExternalLinkage, 
+    nullptr, decl->name);
+  gvar->setInitializer(llvm::ConstantAggregateZero::get(aty));
+  
+  decl->any = gvar; // annotation for DeclRefExpr
 
+  if (decl->init == nullptr)
+    return;
+
+  //# 初始化构造器
+  goto_global_ctor_block(decl);
+
+  // 创建 store 指令将表达式的值存入全局变量 gvar
+  if (auto initExpr = decl->init->dcst<InitListExpr>()) {
+    array_const_init(decl, initExpr, gvar);
+
+    // // 全局数组不应有运行时值初始化
+    // std::vector<std::pair<std::vector<int>, llvm::Value*>> rtDimsVals;
+    // get_array_runtime_dimsvals(rtDimsVals, initExpr);
+    // if (!rtDimsVals.empty()) 
+    //   ABORT();
+  }
+  else 
+    ABORT();
+
+  leave_global_ctor_block();
+}
+
+void 
+EmitIR::operator()(VarDecl* obj) // 变量声明
+{
+  auto typeExpr = obj->type->texp;
+  if (auto p = typeExpr->dcst<ArrayType>()) {
+    global_array_decl(obj);
+  }
+  else {
+    global_var_decl(obj);
+  }
 }
 
 
@@ -290,7 +648,10 @@ EmitIR::operator()(FunctionDecl* obj)
   mCurIrb = std::make_unique<llvm::IRBuilder<>>(entryBb);
   auto& entryIrb = *mCurIrb;
 
-  // TODO: 添加对函数参数的处理
+  // 对函数参数的处理
+  for (auto param : obj->params) {
+    self(param); // 参数声明
+  }
 
   // 翻译函数体
   mCurFunc = func;

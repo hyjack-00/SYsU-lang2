@@ -5,13 +5,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "(ctest) Launch",
-      "type": "cppdbg",
+      "type": "lldb",
       "request": "launch",
-      // Resolved by CMake Tools:
-      "cwd": "${cmake.testWorkingDirectory}",
+      "name": "lldb",
       "program": "${cmake.testProgram}",
-      "args": ["${cmake.testArgs}"]
-    }
+      "args": ["${cmake.testArgs}"],
+      "cwd": "${cmake.testWorkingDirectory}"
+     }
   ]
 }
