@@ -68,6 +68,14 @@ private:
 
   void operator()(asg::IfStmt* obj);
 
+  void operator()(asg::WhileStmt* obj);
+
+  void operator()(asg::DoStmt* obj);
+
+  void operator()(asg::BreakStmt* obj);
+
+  void operator()(asg::ContinueStmt* obj);
+
   void operator()(asg::ReturnStmt* obj);
 
   // TODO: 添加语句处理相关声明
@@ -117,10 +125,10 @@ private:
     // 所有局部变量 alloc 插入到函数入口
     mPrevBb = mCurIrb->GetInsertBlock(); // 暂时切换
     auto &entryBbRef = mCurFunc->getEntryBlock();
-    mCurIrb = std::make_unique<llvm::IRBuilder<>>(&entryBbRef);
+    mCurIrb->SetInsertPoint(&entryBbRef, entryBbRef.getFirstInsertionPt());
   }
   void leave_entry_block() {
-    mCurIrb = std::make_unique<llvm::IRBuilder<>>(mPrevBb);
+    mCurIrb->SetInsertPoint(mPrevBb);
   }
 
   // for global alloc

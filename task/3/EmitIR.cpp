@@ -39,7 +39,8 @@ EmitIR::operator()(const Type* type)
     switch (type->spec) {
       case Type::Spec::kInt:
         return llvm::Type::getInt32Ty(mCtx);
-      // TODO: 在此添加对更多基础类型的处理
+      case Type::Spec::kVoid:
+        return llvm::Type::getVoidTy(mCtx);
       default:
         ABORT();
     }
@@ -346,6 +347,21 @@ EmitIR::operator()(Stmt* obj)
   if (auto p = obj->dcst<ReturnStmt>())
     return self(p);
 
+  if (auto p = obj->dcst<IfStmt>())
+    return self(p);
+
+  if (auto p = obj->dcst<WhileStmt>())
+    return self(p);
+
+  if (auto p = obj->dcst<DoStmt>())
+    return self(p);
+
+  if (auto p = obj->dcst<BreakStmt>())
+    return self(p);
+
+  if (auto p = obj->dcst<ContinueStmt>())
+    return self(p);
+
   ABORT();
 }
 
@@ -523,6 +539,113 @@ EmitIR::operator()(CompoundStmt* obj)
 }
 
 void
+EmitIR::operator()(IfStmt* obj)
+{
+  auto condVal = self(obj->cond); // IR val
+
+  llvm::BasicBlock* thenBb = llvm::BasicBlock::Create(mCtx, "if_then", mCurFunc);
+  llvm::BasicBlock* elseBb = 
+    obj->else_ ? llvm::BasicBlock::Create(mCtx, "if_else", mCurFunc) : nullptr;
+  llvm::BasicBlock* exitBb = llvm::BasicBlock::Create(mCtx, "if_exit", mCurFunc);
+
+  if (obj->else_ == nullptr) {
+    mCurIrb->CreateCondBr(condVal, thenBb, exitBb);
+
+    mCurIrb = std::make_unique<llvm::IRBuilder<>>(thenBb);
+    self(obj->then);
+    if (!mCurIrb->GetInsertBlock()->getTerminator())
+      mCurIrb->CreateBr(exitBb);
+  }
+  else {
+    mCurIrb->CreateCondBr(condVal, thenBb, elseBb);
+
+    mCurIrb = std::make_unique<llvm::IRBuilder<>>(thenBb);
+    self(obj->then);
+    if (!mCurIrb->GetInsertBlock()->getTerminator())
+      mCurIrb->CreateBr(exitBb);
+
+    mCurIrb = std::make_unique<llvm::IRBuilder<>>(elseBb);
+    self(obj->else_);
+    if (!mCurIrb->GetInsertBlock()->getTerminator())
+      mCurIrb->CreateBr(exitBb);
+  }
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(exitBb);
+}
+
+void
+EmitIR::operator()(WhileStmt* obj)
+{
+  auto condBb = llvm::BasicBlock::Create(mCtx, "while_cond", mCurFunc);
+  auto bodyBb = llvm::BasicBlock::Create(mCtx, "while_body", mCurFunc);
+  auto exitBb = llvm::BasicBlock::Create(mCtx, "while_exit", mCurFunc);
+
+  // for break
+  obj->any = exitBb;
+  // for continue
+  obj->cond->any = condBb;
+
+  mCurIrb->CreateBr(condBb);
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(condBb);
+  auto condVal = self(obj->cond); // IR val
+  mCurIrb->CreateCondBr(condVal, bodyBb, exitBb);
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(bodyBb);
+  self(obj->body);
+  mCurIrb->CreateBr(condBb);
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(exitBb);
+}
+
+void
+EmitIR::operator()(DoStmt* obj)
+{
+  auto condBb = llvm::BasicBlock::Create(mCtx, "do_cond", mCurFunc);
+  auto bodyBb = llvm::BasicBlock::Create(mCtx, "do_body", mCurFunc);
+  auto exitBb = llvm::BasicBlock::Create(mCtx, "do_exit", mCurFunc);
+
+  mCurIrb->CreateBr(bodyBb);
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(bodyBb);
+  self(obj->body);
+  mCurIrb->CreateBr(condBb);
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(condBb);
+  auto condVal = self(obj->cond); // IR val
+  mCurIrb->CreateCondBr(condVal, bodyBb, exitBb);
+
+  mCurIrb = std::make_unique<llvm::IRBuilder<>>(exitBb);
+
+  // for break
+  obj->any = exitBb;
+  // for continue
+  obj->cond->any = condBb;
+}
+
+void
+EmitIR::operator()(BreakStmt* obj)
+{
+  auto exitBb = (llvm::BasicBlock*) obj->loop->any;
+  mCurIrb->CreateBr(exitBb); // IR inst
+}
+
+void 
+EmitIR::operator()(ContinueStmt* obj)
+{
+  llvm::BasicBlock* condBb = nullptr;
+  if (auto p = obj->loop->dcst<WhileStmt>())
+    condBb = (llvm::BasicBlock*) p->cond->any;
+  else if (auto p = obj->loop->dcst<DoStmt>())
+    condBb = (llvm::BasicBlock*) p->cond->any;
+  else
+    ABORT();
+  
+  if (condBb)
+    mCurIrb->CreateBr(condBb); // IR inst
+}
+
+void
 EmitIR::operator()(ReturnStmt* obj)
 {
   auto& irb = *mCurIrb;
@@ -674,7 +797,7 @@ EmitIR::operator()(FunctionDecl* obj)
 
     // 忽略默认值？
     auto ty = self(param->type);
-    auto argPtr = entryIrb.CreateAlloca(ty, nullptr, param->name);
+    auto argPtr = entryIrb.CreateAlloca(ty, nullptr, param->name + ".addr");
     entryIrb.CreateStore(argVal, argPtr);
     param->any = argPtr;
   }
