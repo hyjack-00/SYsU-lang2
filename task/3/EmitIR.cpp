@@ -52,7 +52,8 @@ EmitIR::operator()(const Type* type)
   subt.texp = type->texp->sub;
 
   if (auto p = type->texp->dcst<PointerType>()) {
-    return llvm::PointerType::get(self(&subt), 0);
+    // return llvm::PointerType::get(self(&subt), 0);
+    return self(&subt);
   }
   if (auto p = type->texp->dcst<ArrayType>()) {
     // TODO 统一
@@ -124,7 +125,8 @@ EmitIR::operator()(UnaryExpr* obj)
       return irb.CreateNeg(val); // IR val
     }
     case UnaryExpr::kNot: {
-      return irb.CreateNot(val); // IR val
+      auto condVal = get_cond_val(val);
+      return irb.CreateNot(condVal); // IR val
     }
 
     default:
@@ -135,28 +137,111 @@ EmitIR::operator()(UnaryExpr* obj)
 llvm::Value* 
 EmitIR::get_array_indexed(BinaryExpr *indexExpr)
 {
-  auto arr = indexExpr->lft->dcst<ImplicitCastExpr>()->sub; // WARN: 强制处理跳过指针转换，可能有其他情况
+  // WARN: 强制处理跳过指针转换，可能有其他情况
+  auto arr = indexExpr->lft->dcst<ImplicitCastExpr>()->sub; 
   auto idx = indexExpr->rht;
   auto arrVal = self(arr);
   auto idxVal = self(idx);
 
-  auto arrTy = get_array_type(
-    arr->type->texp->dcst<ArrayType>()
-  );
-
   auto &irb = *mCurIrb;
-  std::vector<llvm::Value*> idxList{
-    irb.getInt64(0),
-    idxVal // WARN: 类型最好应该转为 i64
-  };
+  if (auto p = arr->type->texp->dcst<PointerType>()) {
+    auto ty = self(arr->type);
+    std::vector<llvm::Value*> idxList{
+      idxVal // WARN: 类型最好应该转为 i64
+    };
+    return irb.CreateInBoundsGEP(ty, arrVal, idxList);
+  }
+  else if (auto p = arr->type->texp->dcst<ArrayType>()){
+    auto arrTy = get_array_type(p);
+    std::vector<llvm::Value*> idxList{
+      irb.getInt64(0),
+      idxVal // WARN: 类型最好应该转为 i64
+    };
 
-  // WARN 暂时存在逻辑重复，但不影响结果
-  return mCurIrb->CreateInBoundsGEP(arrTy, arrVal, idxList);
+    // WARN 暂时存在逻辑重复，但不影响结果正确性
+    return irb.CreateInBoundsGEP(arrTy, arrVal, idxList);
+  }
+  else 
+    ABORT();
+}
+
+llvm::Value*
+EmitIR::short_circuit_and(BinaryExpr* obj)
+{
+  auto &irb = *mCurIrb;
+
+  auto lftBb = llvm::BasicBlock::Create(mCtx, "and_lft", mCurFunc);
+  auto rhtBb = llvm::BasicBlock::Create(mCtx, "and_rht", mCurFunc);
+  auto exitBb = llvm::BasicBlock::Create(mCtx, "and_exit", mCurFunc);
+
+  irb.CreateBr(lftBb);
+
+  irb.SetInsertPoint(lftBb);
+  auto lftVal = get_cond_val(self(obj->lft)); // IR val
+  llvm::Value* result = irb.CreateAlloca(irb.getInt1Ty(), nullptr, "and_result");
+  irb.CreateStore(lftVal, result);
+  irb.CreateCondBr(lftVal, rhtBb, exitBb);
+
+  irb.SetInsertPoint(rhtBb);
+  auto rhtVal = get_cond_val(self(obj->rht)); // IR val
+  irb.CreateStore(rhtVal, result);
+  irb.CreateBr(exitBb);
+
+  irb.SetInsertPoint(exitBb);
+  return irb.CreateLoad(irb.getInt1Ty(), result);
+}
+
+llvm::Value*
+EmitIR::short_circuit_or(BinaryExpr* obj)
+{
+  auto &irb = *mCurIrb;
+
+  auto lftBb = llvm::BasicBlock::Create(mCtx, "or_lft", mCurFunc);
+  auto rhtBb = llvm::BasicBlock::Create(mCtx, "or_rht", mCurFunc);
+  auto exitBb = llvm::BasicBlock::Create(mCtx, "or_exit", mCurFunc);
+
+  irb.CreateBr(lftBb);
+
+  irb.SetInsertPoint(lftBb);
+  auto lftVal = get_cond_val(self(obj->lft)); // IR val
+  llvm::Value* result = irb.CreateAlloca(irb.getInt1Ty(), nullptr, "or_result");  // WARN 应该放在函数开头
+  irb.CreateStore(lftVal, result);
+  irb.CreateCondBr(lftVal, exitBb, rhtBb);
+
+  irb.SetInsertPoint(rhtBb);
+  auto rhtVal = get_cond_val(self(obj->rht)); // IR val
+  irb.CreateStore(rhtVal, result);
+  irb.CreateBr(exitBb);
+
+  irb.SetInsertPoint(exitBb);
+  return irb.CreateLoad(irb.getInt1Ty(), result);
+
+  // irb.SetInsertPoint(lftBb);
+  // auto lftVal = get_cond_val(self(obj->lft)); // IR val
+  // irb.CreateCondBr(lftVal, exitBb, rhtBb);
+
+  // irb.SetInsertPoint(rhtBb);
+  // auto rhtVal = get_cond_val(self(obj->rht)); // IR val
+  // irb.CreateBr(exitBb);
+
+  // irb.SetInsertPoint(exitBb);
+  // auto phi = irb.CreatePHI(irb.getInt1Ty(), 2);
+  // phi->addIncoming(irb.getTrue(), lftBb);
+  // phi->addIncoming(rhtVal, rhtBb);
+
+  // return phi;
 }
 
 llvm::Value*
 EmitIR::operator()(BinaryExpr* obj)
 {
+  if (obj->op == BinaryExpr::kAnd) {
+    return short_circuit_and(obj);
+  }
+  if (obj->op == BinaryExpr::kOr) {
+    return short_circuit_or(obj);
+  }
+
   auto lftVal = self(obj->lft); // IR val
   auto rhtVal = self(obj->rht); // IR val
 
@@ -197,12 +282,6 @@ EmitIR::operator()(BinaryExpr* obj)
     }
     case BinaryExpr::kNe: {
       return irb.CreateICmpNE(lftVal, rhtVal); // IR val
-    }
-    case BinaryExpr::kAnd: {
-      return irb.CreateAnd(lftVal, rhtVal); // IR val
-    }
-    case BinaryExpr::kOr: {
-      return irb.CreateOr(lftVal, rhtVal); // IR val
     }
     case BinaryExpr::kComma: {
       return rhtVal; // IR val
@@ -538,10 +617,26 @@ EmitIR::operator()(CompoundStmt* obj)
     self(stmt);
 }
 
+llvm::Value*
+EmitIR::get_cond_val(llvm::Value* condVal) // input IR val
+{
+  auto ty = condVal->getType();
+  if (ty->isIntegerTy(1)) { 
+    // bool (i1)
+    return condVal;
+  }
+  else {
+    auto &irb = *mCurIrb;
+    auto zero = irb.CreateIntCast(
+      llvm::ConstantInt::get(ty, 0), ty, false);
+    return irb.CreateICmpNE(condVal, zero); // IR val
+  }
+}
+
 void
 EmitIR::operator()(IfStmt* obj)
 {
-  auto condVal = self(obj->cond); // IR val
+  auto condVal = get_cond_val(self(obj->cond)); // IR val
 
   llvm::BasicBlock* thenBb = llvm::BasicBlock::Create(mCtx, "if_then", mCurFunc);
   llvm::BasicBlock* elseBb = 
@@ -588,7 +683,7 @@ EmitIR::operator()(WhileStmt* obj)
   mCurIrb->CreateBr(condBb);
 
   mCurIrb = std::make_unique<llvm::IRBuilder<>>(condBb);
-  auto condVal = self(obj->cond); // IR val
+  auto condVal = get_cond_val(self(obj->cond)); // IR val
   mCurIrb->CreateCondBr(condVal, bodyBb, exitBb);
 
   mCurIrb = std::make_unique<llvm::IRBuilder<>>(bodyBb);
@@ -612,7 +707,7 @@ EmitIR::operator()(DoStmt* obj)
   mCurIrb->CreateBr(condBb);
 
   mCurIrb = std::make_unique<llvm::IRBuilder<>>(condBb);
-  auto condVal = self(obj->cond); // IR val
+  auto condVal = get_cond_val(self(obj->cond)); // IR val
   mCurIrb->CreateCondBr(condVal, bodyBb, exitBb);
 
   mCurIrb = std::make_unique<llvm::IRBuilder<>>(exitBb);

@@ -118,6 +118,12 @@ private:
   void trans_init(llvm::Value* ptrVal, asg::Expr* obj);
 
 
+  llvm::Value* get_cond_val(llvm::Value* cond);
+
+  llvm::Value* short_circuit_and(asg::BinaryExpr* obj);
+  llvm::Value* short_circuit_or(asg::BinaryExpr* obj);
+
+
   //============================================================================
 
   // for local alloc 
