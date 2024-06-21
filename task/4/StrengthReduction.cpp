@@ -7,7 +7,6 @@ StrengthReduction::run(Module& mod, ModuleAnalysisManager& mam)
 {
   int strengthReductionTimes = 0;
 
-  // 函数：判断操作数为2的幂次方
   auto isPowerOfTwo = [](int64_t value) -> bool {
     return value > 0 && (value & (value - 1)) == 0;
   };
@@ -25,10 +24,10 @@ StrengthReduction::run(Module& mod, ModuleAnalysisManager& mam)
 
           switch (binOp->getOpcode()) {
             // 1. 2幂乘法 -> 左移
-            case Instruction::Mul: {
+            case Instruction::Mul:
               if (constLhs || constRhs) {
                 if (constLhs && constRhs)
-                  mOut << "'constLhs && constRhs' in StrengthReduction\n";
+                  mOut << "'constLhs && constRhs' in Mul, StrengthReduction\n";
 
                 int64_t constValue = constLhs ? constLhs->getSExtValue() : constRhs->getSExtValue();
                 auto operand = constLhs ? rhs : lhs;
@@ -47,46 +46,49 @@ StrengthReduction::run(Module& mod, ModuleAnalysisManager& mam)
                 }
               }
               break;
-            }
-            // 2. 2幂取模 -> 低位 and mask
-            case Instruction::URem: {
-              if (constRhs) {
-                int64_t constValue = constRhs->getSExtValue();
-                if (isPowerOfTwo(constValue)) {
-                  // 取模转移为与操作
-                  binOp->replaceAllUsesWith(BinaryOperator::Create(
-                    Instruction::And, 
-                    lhs, 
-                    ConstantInt::get(
-                      lhs->getType(), 
-                      constValue - 1), // 低位为1
-                    "", 
-                    &inst));
-                  instToErase.push_back(binOp);
-                  ++strengthReductionTimes;
-                }
-              }
-              break;
-            }
-            // 3. 2幂除法 -> 右移
-            case Instruction::UDiv: {
-              if (constRhs) {
-                int64_t constValue = constRhs->getSExtValue();
-                if (isPowerOfTwo(constValue)) {
-                  // 除法转移为移位
-                  binOp->replaceAllUsesWith(BinaryOperator::Create(
-                    Instruction::LShr, 
-                    lhs, 
-                    ConstantInt::get(
-                      lhs->getType(), 
-                      log2(constValue)),
-                    "", 
-                    &inst));
-                  instToErase.push_back(binOp);
-                  ++strengthReductionTimes;
-                }
-              }
-            }
+            
+            // // 2. 2幂取模 -> 低位 and mask
+            // case Instruction::URem: 
+            // case Instruction::SRem:
+            //   if (constRhs) {
+            //     int64_t constValue = constRhs->getSExtValue();
+            //     if (isPowerOfTwo(constValue)) {
+            //       // 取模转移为与操作
+            //       binOp->replaceAllUsesWith(BinaryOperator::Create(
+            //         Instruction::And, 
+            //         lhs, 
+            //         ConstantInt::get(
+            //           lhs->getType(), 
+            //           constValue - 1), // 低位为1
+            //         "", 
+            //         &inst));
+            //       instToErase.push_back(binOp);
+            //       ++strengthReductionTimes;
+            //     }
+            //   }
+            //   break;
+            
+            // // 3. 2幂除法 -> 右移
+            // case Instruction::UDiv: 
+            // case Instruction::SDiv:
+            //   if (constRhs) {
+            //     int64_t constValue = constRhs->getSExtValue();
+            //     if (isPowerOfTwo(constValue)) {
+            //       // 除法转移为移位
+            //       binOp->replaceAllUsesWith(BinaryOperator::Create(
+            //         Instruction::LShr, 
+            //         lhs, 
+            //         ConstantInt::get(
+            //           lhs->getType(), 
+            //           log2(constValue)),
+            //         "", 
+            //         &inst));
+            //       instToErase.push_back(binOp);
+            //       ++strengthReductionTimes;
+            //     }
+            //   }
+            //   break;
+            
             default:
               break;
           }

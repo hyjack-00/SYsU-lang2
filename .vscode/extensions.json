@@ -1,7 +1,6 @@
 {
   "recommendations": [
     "ms-vscode-remote.vscode-remote-extensionpack",
-    "ms-vscode.cpptools-extension-pack",
     "ms-vscode.cmake-tools",
     "twxs.cmake",
     "daohong-emilio.yash",

@@ -3,6 +3,7 @@
 using namespace llvm;
 
 /*
+
 x + 0
 0 + x
 x - 0
@@ -14,6 +15,16 @@ x * 0
 x / 1
 0 / x
 x % 1
+x << 0
+x >> 0
+
+x & 0
+x | 0
+
+x + x
+x - x
+x / x
+
 */
 
 PreservedAnalyses
@@ -32,7 +43,8 @@ AlgebraicIdentities::run(Module& mod, ModuleAnalysisManager& mam)
 
           switch (binOp->getOpcode()) {
             // 1. 加法恒等式
-            case Instruction::Add: {
+            case Instruction::FAdd:
+            case Instruction::Add: 
               if (constLhs && constLhs->isZero()) {
                 // 0 + x -> x
                 binOp->replaceAllUsesWith(rhs);
@@ -44,9 +56,10 @@ AlgebraicIdentities::run(Module& mod, ModuleAnalysisManager& mam)
                 ++algebraicIdentitiesTimes;
               }
               break;
-            }
+            
             // 2. 减法恒等式
-            case Instruction::Sub: {
+            case Instruction::FSub:
+            case Instruction::Sub: 
               if (constRhs && constRhs->isZero()) {
                 // x - 0 -> x
                 binOp->replaceAllUsesWith(lhs);
@@ -61,9 +74,10 @@ AlgebraicIdentities::run(Module& mod, ModuleAnalysisManager& mam)
                 ++algebraicIdentitiesTimes;
               }
               break;
-            }
+            
             // 3. 乘法恒等式
-            case Instruction::Mul: {
+            case Instruction::FMul:
+            case Instruction::Mul: 
               if (constLhs && constLhs->isOne()) {
                 // 1 * x -> x
                 binOp->replaceAllUsesWith(rhs);
@@ -85,9 +99,11 @@ AlgebraicIdentities::run(Module& mod, ModuleAnalysisManager& mam)
                 ++algebraicIdentitiesTimes;
               }
               break;
-            }
+            
             // 4. 除法恒等式
-            case Instruction::UDiv: {
+            case Instruction::FDiv:
+            case Instruction::SDiv:
+            case Instruction::UDiv: 
               if (constRhs && constRhs->isOne()) {
                 // x / 1 -> x
                 binOp->replaceAllUsesWith(lhs);
@@ -99,9 +115,11 @@ AlgebraicIdentities::run(Module& mod, ModuleAnalysisManager& mam)
                 ++algebraicIdentitiesTimes;
               }
               break;
-            }
+            
             // 5. 取模恒等式
-            case Instruction::URem: {
+            case Instruction::FRem:
+            case Instruction::SRem:
+            case Instruction::URem: 
               if (constRhs && constRhs->isOne()) {
                 // x % 1 -> 0
                 binOp->replaceAllUsesWith(ConstantInt::get(
@@ -110,7 +128,20 @@ AlgebraicIdentities::run(Module& mod, ModuleAnalysisManager& mam)
                 ++algebraicIdentitiesTimes;
               }
               break;
-            }
+            
+            // 6. 移位恒等式
+            case Instruction::Shl: 
+            case Instruction::LShr:
+            case Instruction::AShr: 
+              if (constRhs && constRhs->isZero()) {
+                // x >> 0 -> x
+                binOp->replaceAllUsesWith(lhs);
+                ++algebraicIdentitiesTimes;
+              }
+              break;
+
+            // 7. 位运算恒等式
+            
             default:
               break;
           }

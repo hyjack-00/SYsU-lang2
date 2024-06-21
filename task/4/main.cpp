@@ -13,6 +13,7 @@
 
 #include "StrengthReduction.hpp"
 #include "AlgebraicIdentities.hpp"
+#include "CSE.hpp"
 
 void
 opt(llvm::Module& mod)
@@ -41,8 +42,9 @@ opt(llvm::Module& mod)
   mpm.addPass(StaticCallCounterPrinter(llvm::errs()));
   mpm.addPass(Mem2Reg());
   mpm.addPass(ConstantFolding(llvm::errs()));
+  // mpm.addPass(AlgebraicIdentities(llvm::errs()));
   mpm.addPass(StrengthReduction(llvm::errs()));
-  mpm.addPass(AlgebraicIdentities(llvm::errs()));
+  // mpm.addPass(CSE(llvm::errs()));
 
   // 运行优化pass
   mpm.run(mod, mam);
